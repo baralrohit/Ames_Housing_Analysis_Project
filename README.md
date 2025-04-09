@@ -38,8 +38,6 @@ Dataset used in this project was obtained from Kaggle:
 - Train.csv for training the model
 - Test.csv fro testing the model
 
-## Link to the html 
-file:///D:/University/semester%202/exploratory%20data%20analysis/Ames_Housing%20_Analysis/Ames_Report.html
 
 ## Author
 - Rohit Baral
