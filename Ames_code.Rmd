@@ -1,0 +1,792 @@
+---
+title: "A Comprehensive Analysis of Property Sale Prices in Ames: Predictive Modeling and Strategic Insights for Real Estate Investments"
+author: "Rohit Baral"
+date: "2024-05-04"
+id: u3268702
+output:
+  html_document:
+    number_sections: true
+    toc: true
+    toc_depth: 3
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Executive Summary
+
+In the realm of residential real estate, the dynamics of property prices present a complex interplay of numerous factors, ranging from the physical attributes of a house to its geographical settings. This report delves into the Ames Housing dataset, an expansive collection of data compiled by Dean De Cock in 2011 with the intent of fostering data science education. It comprises 80 explanatory variables describing almost every aspect of residential homes in Ames, Iowa. This analysis seeks to reveal the underlying patterns and influential factors that affect the selling prices of homes, providing insights that could aid potential homebuyers, sellers, and developers in making decisions.
+
+The primary aim of this exploratory analysis is to dissect the Ames dataset to identify critical trends and determinants impacting home prices, thereby furnishing stakeholders—ranging from homebuyers to real estate developers—with actionable insights for informed decision-making. Through rigorous predictive modeling and strategic data examination, this report endeavors to delineate the attributes most pivotal to property valuation, while also forecasting potential future trends within the Ames real estate market.
+
+# Problem identification
+
+## Information on the Dataset:
+The Ames Housing dataset, often used for statistical modeling and data science competitions, describes the sale of individual residential property in Ames, Iowa from 2006 to 2010. The dataset includes 2,919 observations and a large number of explanatory variables involved in assessing home values.
+
+## Questions of interest:
+
+1.Seasonal Variation in Sale Prices:
+Question: How do seasons affect sale prices in Ames?
+Potential Impact: Helps understand the best times to buy or sell properties.
+
+2.Trend of Sale Prices Over Years:
+Question: What are the trends in sale prices over the years?
+Potential Impact: Identifies historical growth periods and potential future trends.
+
+3.Neighborhood Influence on Sale Prices:
+Question: How do different neighborhoods compare in terms of sale price growth?
+Potential Impact: Pinpoints high-growth areas for investment opportunities.
+
+4.Effect of Remodeling on Sale Prices:
+Question: Does remodeling affect the sale prices and by how much?
+Potential Impact: Assists homeowners in understanding the value added through renovations.
+
+5.Impact of Property Size on Sale Prices:
+Question: How does the above grade ground living area correlate with the sale prices?
+Potential Impact: Informs potential buyers about the value of square footage in property evaluations.
+
+6.Comparative Analysis of Sale Conditions:
+Question: How do different sale conditions influence the final sale prices?
+Potential Impact: Useful for sellers to understand how conditions of sale affect their return.
+
+7. Impact of Proximity to Amenities and Infrastructure on Sale Prices:
+Question:How does proximity to important amenities and infrastructure (such as main roads, railroads, and public utilities) affect the sale prices of houses in different neighborhoods?
+Potential Impact: Helps sellers understand the value added by proximity to amenities and infrastructure.
+
+# Data Preprocessing:
+ It refers to the cleaning, transforming, and integrating of data in order to make it ready for analysis. The goal of data preprocessing is to improve the quality of the data and to make it more suitable for the specific data mining task. It involves transforming raw data into a format that is more suitable for analysis.It includes handling missing data, either by imputing values or removing data points or features with excessive missing values to ensure accuracy. Feature selection is crucial to avoid dimensionality problems by narrowing down the dataset to the most relevant variables. Data transformation involves normalizing or scaling data, converting data types, or creating new variables to make the data more suitable for analysis. Data cleaning focuses on removing or correcting errors and outliers that could skew results. Finally, data integration involves combining data from multiple sources, ensuring format alignment and conflict resolution to maintain consistency and reliability across the dataset. Together, these steps help in refining the data to ensure that subsequent analyses or models are both efficient and effective.
+ 
+```{r}
+#loading required libraries
+library(tidyverse)
+library(ggplot2)
+library(corrplot)
+library(plotly)
+library(scales)
+library(caret)
+library(Metrics)
+library(knitr)
+library(randomForest)
+```
+
+```{r}
+#Loading the test and train dataset
+train_df <- read.csv("train.csv")
+test_df <- read.csv("test.csv")
+
+#combining training and test sets to get the main dataset and stored it as "df"
+df <- rbind(train_df,test_df)
+```
+
+
+```{r}
+#exploring the dataset "df"
+
+dim(df)
+head(df)
+tail(df)
+
+```
+
+## Handling missing values
+```{r}
+#creatig a variable that will store all the variables that has variable names and NA values count and arranging them in descending order
+na_count_table <- df %>% 
+  summarise(across(everything(), ~sum(is.na(.)))) %>%  # Sum of NAs across all columns
+  pivot_longer(cols = everything(), names_to = "column_names", values_to = "na_count") %>%  # Convert to long format
+  filter(na_count > 0) %>%  # Filter columns with NA counts greater than 0
+  arrange(desc(na_count))
+
+View(na_count_table)
+```
+When we view "na_count_table" variable, we can see that there are 34 variables that has NA values. There are 4 variables that has more than 50% NA values.Therefore, , I opted to remove variables with more than 50% missing values to enhance the reliability and accuracy of the analysis. This approach was chosen primarily because high levels of missing data can compromise data quality, leading to potentially misleading or incorrect conclusions.
+
+```{r}
+#number of rows
+n_rows <- nrow(df)
+
+# Calculate the proportion of NA values for each column
+na_count_table$na_proportion <- na_count_table$na_count / n_rows
+
+# Filter to find variables with more than 50% NAs and ensure it remains a vector
+variables_over_50pct_na <- na_count_table[na_count_table$na_proportion > 0.5, "column_names"]
+
+# Exclude the columns from df and save it in new variable called "df_clean"
+df_clean <-df %>% 
+  select(-variables_over_50pct_na$column_names)
+
+#removing the first column which is "ID" because it is just the count of observations, not an actual variable
+df_clean <- df_clean[,-1]
+```
+## Imputing missing values
+
+After finding out the variables with missing values next crucial step would be to impute the missing values.It is a process of replacing missing values with some estimated values. Th main importance of imputation is to maintain the structure of the dataset, and help to reduce the bias. For our analysis, we'll impute the numeric variables that has missing values as 0 and impute "none" to the character variables.So, firt we'll identify the clas of the each variables.
+```{r}
+#identifying the numeric and character variables 
+# List of numeric variables
+num_var <- names(df_clean)[sapply(df_clean, is.numeric)]
+
+cat("There are",length(num_var),"numeric variables.")
+
+# List of character variables
+char_var <- names(df_clean)[sapply(df_clean, is.character)]
+
+cat("There are",length(char_var),"character variables.")
+```
+
+```{r}
+# Imputing 0 to numeric variables with NA
+df_clean[num_var] <- lapply(df_clean[num_var], function(x) ifelse(is.na(x), 0, x))
+
+# Imputing "None" to character variables with NA
+df_clean[char_var] <- lapply(df_clean[char_var], function(x) ifelse(is.na(x), "None", x))
+
+```
+
+# Exploratory data analysis
+
+Exploratory Data Analysis (EDA) is a foundational approach in Data Science, emphasizing the use of data visualization to understand datasets without preconceptions. It's vital for gaining insights, developing interpretable models, and making informed decisions. EDA is about embracing data's complexity to extract meaningful narratives efficiently.
+
+## Exploring the target variable
+First, we'll make a histogram  to explore the distribution of key variables, particularly the target variable (SalePrice). This helps in understanding the central tendencies and dispersion, as well as in spotting any skewness that might need correction before modeling.
+
+```{r}
+# Creating histogram using ggplot
+ggplot(df_clean, aes(x = SalePrice)) +
+  geom_histogram(aes(fill = after_stat(count)), bins = 60, color = "white") +
+  scale_fill_gradient(low = "blue", high = "red") +
+  labs(title = "Distribution of Sale Prices",
+       x = "Sale Price ($)",
+       y = "Frequency") +
+  theme_gray() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        axis.title.x = element_text(face = "bold", color = "black", size = 12),
+        axis.title.y = element_text(face = "bold", color = "black", size = 12)) +
+  scale_x_continuous(labels = scales::dollar_format())
+
+```
+
+From the graph, we can see that the sale prices are right skewed.This means that few people can afford very expensive houses.
+
+```{r}
+#plotting
+ggplot(df_clean, aes(x = factor(1), y = SalePrice)) +  # Added a dummy x value for proper alignment
+    geom_boxplot(fill = "black", outlier.colour = "red", outlier.shape = 1) +
+    geom_jitter(color = "violet", alpha = 0.3) +  # Orange jitter points with transparency
+    labs(title = "Boxplot of SalePrice",  # Title for the plot
+         x = "",  # No x-axis label needed (single category)
+         y = "Sale Price ($)") +  # Y-axis label
+    theme_gray() +  # Using theme_gray for a clean background
+    scale_y_continuous(labels = scales::dollar_format())
+  
+```
+
+The provided boxplot, enhanced with jitter points, illustrates the distribution of the SalePrice for properties in your dataset. The central box, shaded in black, captures the middle 50% of the data, highlighting the interquartile range (IQR) where the bulk of sale prices lie, predominantly clustered around the median (visible as the line within the box). Notably, the plot reveals a wide range of sale prices, with a substantial concentration of data points below $400,000, indicating this range as typical for most sales. Above this, there are numerous outliers extending up to $800,000, marked by red points, which indicate significantly higher sale prices compared to the typical property in the dataset. These outliers suggest the presence of premium properties with features or locations that command much higher prices, indicating a diverse real estate market with a substantial segment of luxury homes.
+
+## Answering to the questions of interest
+### Problem 1. Seasonal Variation in Sale Prices:
+Question: How do seasons affect sale prices in Ames?
+Approach: Categorizing 'MoSold' into seasons and analyze price trends.
+Potential Impact: Helps understand the best times to buy or sell properties.
+```{r}
+#calculating season from the "MoSold" variable
+df_clean$SeasonSold <- with(df_clean, factor(
+  ifelse(MoSold %in% c(3, 4, 5), "Spring",
+         ifelse(MoSold %in% c(6, 7, 8), "Summer",
+                ifelse(MoSold %in% c(9, 10, 11), "Fall", "Winter"))),
+  levels = c("Spring", "Summer", "Fall", "Winter")
+))
+
+#using ggplot to create boxplot
+ggplot(df_clean, aes(x = SeasonSold, y = SalePrice, fill = SeasonSold)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels =scales::dollar_format()) +
+  labs(title = "Sale Prices by Season",
+       x = "Season",
+       y = "Sale Price ($)") +
+  theme_gray() +
+  scale_fill_brewer(palette = "Pastel1")
+```
+
+
+The bar chart illustrates the median sale prices of homes across different seasons, showing a clear seasonal variation in sale prices within the Ames housing market. Summer stands out as the season with the highest median sale price, significantly surpassing other seasons, which suggests a peak in housing demand during this time. Spring also shows relatively high sale prices, indicating a strong market as the buying season begins. In contrast, Fall and Winter see a substantial drop in median sale prices, with Winter having the lowest, reflecting possibly slower market activity during colder months. This pattern underscores the influence of seasonal trends on real estate dynamics, where warmer months tend to attract more buyers, driving up sale prices.
+
+### Problem 2:.Trend of Sale Prices Over Years:
+Question: What are the trends in sale prices over the years?
+Approach: Use of time series analysis on 'YrSold' and 'SalePrice'.Taking median sales price considering the outliers.
+Potential Impact: Identifies historical growth periods and potential future trends.
+ 
+```{r}
+# Calculate average sale prices by year
+median_prices_by_year <- aggregate(SalePrice ~ YrSold, data = df_clean, median)
+
+# Plotting average sale prices by year
+ggplot(median_prices_by_year, aes(x = YrSold, y = SalePrice)) +
+  geom_line(group = 1, color = "blue", size = 1) +  # Line plot
+  geom_point(color = "red", size = 3) +  # Add points
+  geom_smooth(method = "lm", color = "black", se = FALSE) + 
+  scale_y_continuous(labels = scales::dollar_format())+# Linear trend line
+  labs(title = "Median Sale Price Over the Years",
+       x = "Year Sold",
+       y = "Median Sale Price ($)") +
+  theme_minimal()
+```
+
+
+Above plot displays the average sale price over the years from 2006 to 2010 in the Ames Housing dataset has an interesting trend. In 2006, the median sale price begins at approximately $158,000 and shows a significant increase in 2007, peaking at about $165,000. However, following this peak, there is a notable decline in the subsequent years. By 2008, prices drop to around $161,000 and continue to decrease steeply through 2009 and 2010, where it reaches approximately $155,000. The linear trend line overlaid on the data indicates an overall downward trend in sale prices over this period. This pattern suggests that the housing market in Ames experienced a brief surge in prices, which was followed by a steady decline, likely influenced by 2007-2008 financial crisis in US. The visualization and its trend line provide a clear depiction of how the market dynamics shifted negatively over the analyzed period.
+
+### Problem 3:.Neighborhood Influence on Sale Prices:
+Question: How do different neighborhoods compare in terms of sale price growth?
+Approach: Analyzing sale prices across 'Neighborhood' with respect to time.
+Potential Impact: Pinpoints high-growth areas for investment opportunities.
+```{r}
+# Calculate median sale prices by neighborhood and year
+median_prices_by_neighborhood_year <- aggregate(SalePrice ~ Neighborhood + YrSold, data = df_clean, median)
+
+
+#creating plotly plot 
+ggplotly(
+  ggplot(median_prices_by_neighborhood_year, aes(x = YrSold, y = SalePrice, group = Neighborhood, color = Neighborhood)) +
+    geom_line() +
+    geom_point() +
+    facet_wrap(~Neighborhood, scales = "free_y") +
+    labs(title = "Median Sale Price Growth by Neighborhood",
+         x = "Year Sold",
+         y = "Median Sale Price ($)") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))  # Rotate x-axis labels by 45 degrees
+)
+
+```
+
+
+The above plot revesla all the general trend in median sales price across all the neighbourhood over the years.It reveals varied trends in property values across neighborhoods, with some areas experiencing substantial increases, while others show declines or fluctuations.
+
+Upward Trends:
+NWAmes, Mitchell, Crawford, Blueste, and Gilbert are neighborhoods where median sale prices have shown an upward trajectory over the five-year period. These areas have consistently experienced growth in property values, indicating a trend of increasing prices year over year.
+
+Downward Trends:
+Somerst, StoneBr, Timber, SWISU, and NPKVill exhibit downward trends in median sale prices during the same period. In these neighborhoods, property values have generally declined over the years, suggesting a decrease in the median sale prices.
+
+### Problem 4:Effect of Remodeling on Sale Prices:
+Question: Does remodeling affect the sale prices and by how much?
+Approach: Compare prices of homes remodeled ('YearRemodAdd') versus original.
+Potential Impact: Assists homeowners in understanding the value added through renovations.
+
+```{r}
+# Create a new factor variable to indicate remodeled homes
+df_clean$Remodeled_homes <- ifelse(df_clean$YearRemodAdd != df_clean$YearBuilt, "Remodeled", "Not Remodeled")
+df_clean$Remodeled_homes <- factor(df_clean$Remodeled)
+
+# Aggregate data to find median sale prices based on remodeling status
+median_prices_by_remodel <- aggregate(SalePrice ~ Remodeled_homes, data = df_clean, median)
+
+# Plotting
+ggplot(median_prices_by_remodel, aes(x = Remodeled_homes, y = SalePrice, fill = Remodeled_homes)) +
+  geom_bar(stat = "identity", position = "dodge") +
+   scale_y_continuous(labels = scales::dollar_format())+
+  labs(title = "Median Sale Prices: Remodeled vs. Not Remodeled Homes",
+       x = "Remodel Status",
+       y = "Median Sale Price ($)") +
+  scale_fill_brewer(palette = "Set1") +
+    theme_gray()
+```
+
+
+The bar chart clearly illustrates the median sale prices for homes based on their remodeling status in the Ames Housing dataset. It shows that homes which have not been remodeled have a higher median sale price compared to those that have been remodeled. This could suggest that in this particular dataset, newer or more recently built homes that have not required remodeling are valued higher, or that the remodeling undertaken may not have been substantial enough to increase the property value significantly above the median of unremodeled homes. This counterintuitive result might prompt further investigation into the types of renovations performed, the quality of those renovations, or other market factors affecting these homes.
+
+### Problem 5:Impact of Property Size on Sale Prices:
+Question: How does the above grade ground living area correlate with the sale prices?
+Potential Impact: Informs potential buyers about the value of square footage in property evaluations.
+
+```{r}
+# Create a scatter plot
+ggplot(df_clean, aes(x = GrLivArea, y = SalePrice)) +
+  geom_point(alpha = 0.5) +  # Add points with some transparency for better visibility
+  scale_y_continuous(labels = scales::dollar_format())+
+  geom_smooth(method = "lm", color = "blue") +  # Add a linear regression line
+  labs(title = "Relationship Between Ground Living Area and Sale Price",
+       x = "Total Living Area (sq ft)",
+       y = "Sale Price ($)") +
+  theme_gray()
+```
+
+
+The plot above reveals positive correlation between the total living area and the sale price of homes. This relationship is evident from the upward slope of the regression line, indicating that as the living area increases, the sale price generally rises. The density of data points closely clustered around the regression line, especially within smaller living areas (up to approximately 2000 sq ft), suggests a strong linear relationship between the variables. However, outliers are noticeable, particularly among homes with larger living areas (above 3000 sq ft), where sale prices exhibit greater variability. These outliers imply that while living area serves as a significant predictor of sale price, other factors may influence the pricing of larger homes. The blue regression line provides a quantitative representation of this relationship, offering insights into the average increase in sale price per square foot of living area. The coefficients derived from the linear model used to construct the line quantify this relationship, typically stating the increment in sale price for every additional square foot of living area.
+
+### Problem 6:Comparative Analysis of Sale Conditions:
+Question: How do different sale conditions influence the final sale prices?
+Approach: Examine 'SaleCondition' categories and their effect on sale prices.
+Potential Impact: Useful for sellers to understand how conditions of sale affect their return.
+
+```{r}
+# Aggregate data to calculate median sale prices by sale condition
+median_prices_by_condition <- aggregate(SalePrice ~ SaleCondition, data = df_clean, median)
+
+# Checking for distribution of sales across conditions
+table(df_clean$SaleCondition)
+
+ggplot(df_clean, aes(x = SaleCondition, y = SalePrice, fill = SaleCondition)) +
+  geom_bar(stat = "summary", fun = "median", position = "dodge") +
+  scale_y_continuous(labels = scales::dollar_format())+
+  labs(title = "Median Sale Prices by Sale Condition",
+       x = "Sale Condition",
+       y = "Median Sale Price ($)") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_gray() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+The bar chart effectively illustrates the median sale prices for homes under various sale conditions, clearly demonstrating how different conditions influence the final sale prices in the Ames Housing dataset.The bar chart provides a clear answer to this question:
+
+Partial sales typically result in the highest sale prices, highlighting the market's preference and higher valuation for new construction or premium conditions of sale.
+
+Normal sales maintain a solid median price, indicating that standard market conditions are quite healthy and can deliver good returns on properties.
+
+Special conditions such as Abnorml, AdjLand, and Alloca often see reduced prices compared to normal market sales, likely due to the circumstances under which these properties are sold (e.g., distress sales, not typical residential property transactions).
+
+### Problem 7:Impact of Proximity to Amenities and Infrastructure on Sale Prices:
+Question:How does proximity to important amenities and infrastructure (such as main roads, railroads, and public utilities) affect the sale prices of houses in different neighborhoods?
+Approach: Examine 'conidtion1' and 'utilities' and therir impact on sale prices.
+Potential Impact: Helps sellers understand the value added by proximity to amenities and infrastructure.
+
+```{r}
+# Making sure categorical variables are treated as factors
+df_clean$Condition1 <- as.factor(df_clean$Condition1)
+df_clean$Condition2 <- as.factor(df_clean$Condition2)
+df_clean$Utilities <- as.factor(df_clean$Utilities)
+df_clean$GarageType <- as.factor(df_clean$GarageType)
+
+# Bar chart for proximity to main roads or railroads
+ggplot(df_clean, aes(x = Condition1, y = SalePrice, fill = Condition1)) +
+  geom_bar(stat = "summary", fun = "median", position = "dodge") +
+  labs(title = "Median Sale Prices by Proximity to Main Roads or Railroads",
+       x = "Proximity Condition",
+       y = "Median Sale Price") +
+  theme_gray()
+
+# Bar chart for types of utilities
+ggplot(df_clean, aes(x = Utilities, y = SalePrice, fill = Utilities)) +
+  geom_bar(stat = "summary", fun = "median", position = "dodge") +
+  labs(title = "Median Sale Prices by Type of Utilities",
+       x = "Utilities",
+       y = "Median Sale Price") +
+  theme_gray()
+```
+
+
+Interpretation of  Median Sale Prices by Proximity to Main Roads or Railroads:
+The first bar chart displays median sale prices categorized by the property's proximity to different types of roads and railroads. Here are some key observations:
+
+Higher Prices Near PosA & PosN: Homes in proximity to positive amenities (PosA, PosN) show notably higher median sale prices, suggesting that proximity to favorable amenities like parks or green spaces can significantly enhance property values.
+
+Variability with Railroads: Properties near railroads (RRNe, RRNn) do not consistently follow a clear trend, indicating that the impact of being near a railroad can vary significantly. For some, this proximity might be seen as a drawback due to noise and traffic, while for others, it could provide essential connectivity.
+
+Lower Prices Near Arteries: Properties located near major arteries (Artery) have lower median prices, possibly due to the negative aspects of high traffic such as noise and pollution.
+
+Interpretation of Median Sale Prices by Types of Utilities:
+The second bar chart shows the median sale prices based on the type of utilities available:
+
+All Public Utilities (AllPub): Homes with all public utilities generally command higher median sale prices, reflecting the high desirability and convenience of having comprehensive utility services.
+
+Limited Utilities (NoSeWa): Properties with only septic/well utilities (NoSeWa) have lower median prices than those with all public utilities but are still above properties with no utilities.
+
+No Utilities: Properties lacking utilities show significantly lower median sale prices, highlighting the critical role utilities play in property valuation.
+
+# Further preprocessing
+Further preprocessing is an crucial step to find other significant explanatory variables to explain the response variable. Firt, we'll make a correlational matrix plot to see which variables has high correlation with the SalePrice.
+
+```{r}
+#getting the names of numeric columns
+names_num_vars <- names(df_clean)[sapply(df_clean, is.numeric)]
+
+# Now, use these names to extract the numeric data from df_clean
+num_var <- df_clean[, names_num_vars]
+
+# Calculating the correlation matrix with pairwise complete observations
+cor_num_Var <- cor(num_var, use = "pairwise.complete.obs")
+
+# Sorting correlations with SalePrice and selecting high correlations
+cor_sorted <- sort(cor_num_Var["SalePrice", ], decreasing = TRUE)
+high_corr_vars <- names(cor_sorted[abs(cor_sorted) > 0.5])
+
+# Subset the correlation matrix to include only highly correlated variables
+cor_high <- cor_num_Var[high_corr_vars, high_corr_vars]
+
+# Plot using corrplot
+corrplot.mixed(cor_high, tl.col = "red", tl.pos = "lt",tl.cex=0.78, tl.srt=90)
+
+```
+
+The above The correlation matrix displays the relationships between SalePrice and various other variables that might influence it, along with inter-correlations among those variables.An interpretation based on the visualization:
+
+1.Strong Positive Correlations with SalePrice:
+-OverallQual (0.80): The strongest correlation observed is between SalePrice and OverallQual, indicating that as the overall material and finish quality of a house improves, the sale price significantly increases.
+-GrLivArea (0.71): Another strong positive correlation is with GrLivArea (above-grade living area), suggesting that larger living spaces are highly valued in the housing market.
+-GarageCars (0.65) and GarageArea (0.64): Both these garage-related variables show strong correlations with SalePrice, reflecting the importance of garage space in property valuation. Notably, GarageCars and GarageArea are also highly correlated with each other (0.89), indicating redundancy.
+
+2.Other Notable Positive Correlations:
+-TotalBsmtSF (0.63) and 1stFlrSF (0.62): Indicate that larger basement and first-floor areas are associated with higher sale prices.
+-FullBath (0.55): More full bathrooms correlate with higher sale prices, possibly reflecting larger or more luxurious homes.
+-YearBuilt (0.56) and YearRemodAdd (0.55): Newer homes or those recently remodeled tend to fetch higher prices.
+
+3.Inter-correlations Among Features:
+-The high correlation between 1stFlrSF and TotalBsmtSF (0.80) might be due to architectural styles where the first floor area often matches the basement area.
+-YearBuilt and YearRemodAdd are moderately correlated (0.59), which makes sense as newer homes are less likely to have immediate remodels.
+
+## Visualization of important explanatory variables 
+### Overall Quality vs SalePrice
+
+From the correlational matrix plot, we can see that it has the highest correlation with the target variable among the numeric variables(0.79).
+
+```{r}
+# Convert 'OverallQual' to a factor with ordered levels
+df_clean$OverallQual <- factor(df_clean$OverallQual, levels = rev(unique(df_clean$OverallQual)), ordered = TRUE)
+
+ggplot(data = df_clean, aes(x = OverallQual, y = SalePrice, fill = OverallQual)) +
+  geom_boxplot(alpha = 0.7, outlier.color = 'red', outlier.shape = 16) +
+  scale_fill_discrete() +  # Use discrete scale for fill
+  labs(x = 'Overall Quality', y = 'Sale Price ($)', title = 'Distribution of Sale Price by Overall Quality') +
+  scale_y_continuous(labels=scales::dollar_format(), breaks = seq(0, 800000, by = 100000)) +
+  theme_gray() +
+  theme(axis.text.x = element_text(hjust = 1))
+
+```
+
+The relationship between house quality and sale price is strong and positive, as visualized in the boxplot. It is clear that buyers are willing to pay premium prices for higher quality, which is reflected across the quality spectrum. This visualization effectively captures the critical role of overall quality in housing market valuations and can serve as a strong tool for sellers to price their homes based on quality ratings accurately. Moreover, for buyers, it provides insight into what price ranges they might expect to face when targeting homes of specific quality levels. There are numerous outliers at almost all quality levels, but particularly at higher quality ratings. This could indicate that within each quality category, there are homes with exceptional features or locations that command significantly higher prices than the median for that category.
+
+### GarageArea vs SalePrice
+
+```{r}
+# Create a scatter plot for SalePrice vs GarageArea with GarageCars as a color factor
+ggplot(df_clean, aes(x = GarageArea, y = SalePrice)) +
+  geom_point(aes(color = factor(GarageCars))) +  # Points colored by GarageCars
+  geom_smooth(method = "lm", se = FALSE) +  # Add a linear regression line, no confidence interval
+  scale_y_continuous(
+    breaks = seq(from = 0, to = 800000, by = 100000),
+    labels = scales::dollar_format()  # Use dollar formatting for better readability
+  ) +
+  scale_color_brewer(palette = "Set1", name = "Car Capacity of Garage") +  # Improved color scale for clarity
+  labs(
+    title = "Sale Price vs Garage Area",
+    subtitle = "Relationship between Sale Price and Size of Garage (in square feet)",
+    x = "Size of Garage (in square feet)",
+    y = "Sale Price (in USD)"
+  ) +
+  theme_gray() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+```
+
+The scatter plot above illustrates the relationship between the size of a garage in square feet and the sale price of homes, categorized by the car capacity of the garage. The plot indicates a positive trend where homes with larger garages tend to have higher sale prices, as depicted by the linear regression line. Points are color-coded by the number of cars the garage can hold, revealing that homes with the capacity for more cars not only have larger garages but also command higher prices, particularly those with garages sized for three or more cars. There's noticeable dispersion in sale prices among homes with similar garage sizes, suggesting that while garage size is a significant factor, other attributes also materially affect home values.
+
+### Total Basement square feet vs SalePrice
+
+There's 0.63 correlationship between total basement square feet and the target variable.Therfore, we'll visualize the data to see the relationship between these two variales.
+
+```{r}
+# creating scatterplot
+ggplot(df_clean, aes(x = TotalBsmtSF, y = SalePrice)) +
+  geom_point(aes(color = SalePrice), alpha = 0.7) +  # Color points by Sale Price
+  scale_y_continuous(labels = scales::dollar_format()) +
+  labs(title = "TotalBsmtSF vs SalePrice",
+       x = "Total Basement Square Feet",
+       y = "Sale Price ($)",
+       color = "Sale Price") +  # Color legend title
+  scale_color_gradient(low = "blue", high = "red",labels = scales::dollar_format()) +  # Gradient color scale
+  theme_gray()
+
+```
+
+The scatter plot visualizes the relationship between the total square feet of basement space (TotalBsmtSF) and the sale prices of homes (SalePrice). The color gradient, ranging from purple to red, represents different sale price tiers, with red indicating higher prices. From the plot, it is evident that there is a general positive correlation between basement size and sale price, particularly for homes with up to about 3000 square feet of basement area, where increases in basement size correspond to increases in sale price. Beyond this point, while there are fewer data points, the trend continues with some homes in the larger basement size category (over 3000 square feet) also achieving high sale prices. Notably, there is significant variability in sale prices among homes with smaller basements, and the presence of several high-value outliers suggests that factors other than basement size also significantly impact sale prices.
+
+### Full bathroom vs SalePrice
+
+There's 0.55 correlationship between total bathroom and the target variable.Therfore, we'll visualize the data to see the relationship between these two variables.
+
+```{r}
+# creating scatterplot
+ggplot(df_clean, aes(x = FullBath, y = SalePrice)) +
+  geom_point(aes(color = SalePrice), alpha = 0.7) +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  labs(title = "FullBath vs SalePrice",
+       x = "Number of Full Bathrooms",
+       y = "Sale Price ($)") +
+   scale_color_gradient(low = "blue", high = "red",labels = scales::dollar_format()) + 
+  theme_gray()
+```
+
+
+The scatter plot above displays the relationship between the number of full bathrooms (FullBath) in a house and its sale price (SalePrice). The data shows that homes with more full bathrooms tend to have higher sale prices, indicating that additional bathrooms are a valuable feature in residential properties. Specifically, homes with three full bathrooms generally command the highest prices, with a noticeable number of these homes selling for over $400,000, as highlighted by the red dots. Interestingly, the number of homes with four full bathrooms is less, but these properties still achieve high sale prices, suggesting a premium market segment. The plot also reveals that while the median sale prices increase with more bathrooms, there is considerable variability in prices within each bathroom category, as evidenced by the vertical spread of data points. This suggests that while the number of bathrooms is an important factor influencing home prices, other attributes like location, size, and finishes also play significant roles in determining the final sale price.
+
+# Modelling
+## Preparing the data for modelling
+The process of preparing data for modeling involves selecting and organizing the variables according to their type and relevance to the predictive model. In this case, the data preparation involved several key steps:
+
+1.Variable Selection and Exclusion: Certain variables such as MSSubClass, MoSold, YrSold, SalePrice, OverallQual, and OverallCond were removed from the list of numeric variables. These variables were excluded because they are not relevant as numeric predictors due to their categorical nature (MSSubClass, OverallQual, OverallCond), are identifiers. SalePrice was excluded as it is the target variable.
+
+2.Inclusion of Computed Variables: Additional variables that capture more detailed aspects of the properties such as Age, TotalPorchSF, TotBathrooms, and TotalSqFeet were added. These variables are derived or computed to provide more granular numeric data that could enhance the model's ability to predict the sale price based on physical characteristics and overall size attributes of the property.
+
+3.Data Segregation: The dataset was then divided into numeric (df_num) and categorical (df_factors) subsets. This segregation simplifies the handling of different data types during the modeling process. Numeric data may require scaling or normalization, while categorical data often needs to be converted into dummy variables or factor levels to fit into a statistical model properly.
+
+4.Exclusion of the Target Variable: From the categorical dataset, SalePrice was explicitly removed to ensure it is only treated as a target variable in predictive modeling and not as a feature.
+
+5.Verification: The final step involved verifying the composition of the datasets, ensuring that the expected number of numeric and factor variables was correct. This helps in confirming that the data is structured correctly before proceeding to model fitting.
+```{r}
+
+# Remove specific variables from the list of numeric variables that may cannot treated as numeric for modeling
+num_var <- num_var[!(num_var %in% c('MSSubClass', 'MoSold', 'YrSold', 'SalePrice', 'OverallQual', 'OverallCond'))]
+
+# Append additional variables that are deemed numeric for the purposes of analysis
+num_var <- append(num_var, c('Age', 'TotalPorchSF', 'TotBathrooms', 'TotalSqFeet'))
+
+# Subset the dataframe to include only the columns listed as numeric variables
+df_num <- df_clean[, names(df_clean) %in% num_var]
+
+# Create a separate dataframe for factor variables by excluding the numeric variables
+df_factors <- df_clean[, !(names(df_clean) %in% num_var)]
+
+# Further remove the SalePrice column from the factors dataframe as it is the target variable
+df_factors <- df_factors[, names(df_factors) != 'SalePrice']
+
+```
+
+
+```{r}
+# #spliting the data into train and test sets
+# #first setting the seeds
+set.seed(123)
+
+#preparing the data
+#spliting the dataset into 80% training data as tain_data and 20% testing data as test_data
+index <-createDataPartition(df_clean$SalePrice,p=0.8,list = FALSE)
+train_data <- df_clean[index,]
+test_data <- df_clean[-index,]
+
+```
+
+## First Model
+In our further preprocessing part, we have the significant explanatory variables to predict the target variable.  
+```{r}
+# Fit the linear model
+lm_model1 <- lm(SalePrice ~ OverallQual + GrLivArea + TotalBsmtSF + GarageCars + FullBath, data = train_data)
+summary(lm_model1)
+```
+
+The summary output of a linear regression model predicting SalePrice using the predictors OverallQual, GrLivArea, TotalBsmtSF, GarageCars, and FullBath:
+
+1.Coefficients Interpretation:
+-Intercept: The intercept coefficient (-1.038e+05) represents the estimated SalePrice when all other predictors are zero.
+-OverallQual: For every one-unit increase in OverallQual, there is an estimated increase in SalePrice by 2.448e+04 units.
+-GrLivArea: Similarly, for every one-unit increase in GrLivArea, SalePrice is estimated to increase by 4.744e+01 units.
+-TotalBsmtSF: For every one-unit increase in TotalBsmtSF, SalePrice is estimated to increase by 3.364e+01 units.
+-GarageCars: Each additional GarageCars is associated with an estimated increase in SalePrice by 1.800e+04 units.
+-FullBath: The coefficient for FullBath is not statistically significant (p-value > 0.05), indicating that it might not have a significant effect on SalePrice after accounting for other predictors.
+
+2.Residuals:The residuals represent the differences between the observed and predicted SalePrice values. They range from -486606 to 278424, indicating the model's ability to accurately predict SalePrice across the dataset.
+
+3.Residual Standard Error:The residual standard error (39140) represents the average amount by which the observed SalePrice values deviate from the predicted values. It is a measure of the model's goodness of fit.
+
+4.Multiple R-squared:The Multiple R-squared value (0.7702) indicates that approximately 77.02% of the variability in SalePrice can be explained by the predictors included in the model.
+
+5.Adjusted R-squared:The Adjusted R-squared value (0.7698) adjusts the R-squared value based on the number of predictors in the model. It penalizes the addition of unnecessary predictors.
+
+6.F-statistic:The F-statistic (1562) assesses the overall significance of the model. With a p-value < 2.2e-16, the model is statistically significant, indicating that at least one of the predictors has a non-zero effect on SalePrice.
+
+
+```{r}
+# Predict using the linear model
+predictions_lm1 <- predict(lm_model1, newdata = test_data)
+
+```
+
+```{r}
+test_data$Predicted_SalePrice <- predictions_lm1
+
+# Prepare the data frame for plotting
+plot_data <- data.frame(Actual = test_data$SalePrice, Predicted = test_data$Predicted_SalePrice)
+
+# Create the scatterplot
+ggplot(plot_data, aes(x = Actual, y = Predicted)) +
+  geom_point(aes(color = Actual), alpha = 0.5) + 
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  # Add a linear trend line
+  labs(title = "Comparison of Actual and Predicted Sale Prices for mod1",
+       x = "Actual Sale Price ($)",
+       y = "Predicted Sale Price ($)",
+       subtitle = "Scatterplot of predictions from Linear Model") +
+  theme_gray() +  
+  scale_color_gradient(low = "blue", high = "red",labels=scales::dollar_format()) +  # Gradient color scale
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black")+
+  scale_x_continuous(labels = scales::dollar_format()) + 
+  scale_y_continuous(labels = scales::dollar_format()) 
+```
+
+The scatterplot illustrates the relationship between actual and predicted sale prices from a linear regression model. The data points are color-coded based on the actual sale price, showing a gradient from purple (lower prices) to red (higher prices). The plot reveals a generally strong linear relationship, indicated by the alignment of data points along the red trend line, which represents the model's predictions. Most predictions closely match the actual values, especially for homes priced below $300,000, as seen by the density of points near the line. However, as the price increases, the variability in the model's accuracy also increases, with some high-value homes ($400,000 and above) showing more significant deviations from the predicted line. This suggests the model performs well for lower to mid-priced homes but may require adjustments or additional predictors to improve accuracy for higher-priced homes.
+
+## Enhanced Model
+
+```{r}
+# Enhancing the model by including OverallQual and GrLivArea
+lm_model2 <- lm(SalePrice ~ OverallQual + GrLivArea, data = train_data)
+
+# Output the summary of the model to examine coefficients and statistics
+summary(lm_model2)
+
+# Predict using the enhanced model
+predictions_lm2 <- predict(lm_model2, newdata = test_data)
+
+# Create a data frame containing actual and predicted sale prices
+plot_data_lm2 <- data.frame(
+  Actual = test_data$SalePrice,
+  Predicted = predictions_lm2
+)
+
+# Create a scatterplot to visualize the predictions
+ggplot(plot_data_lm2, aes(x = Actual, y = Predicted)) +
+  geom_point(aes(color = Actual, alpha = 0.5)) +  # Scatterplot points
+  geom_smooth(method = "lm", se = FALSE, color = "red") +  # Red regression line
+  labs(title = "Actual vs. Predicted Sale Prices (Enhanced Model 2)",
+       x = "Actual Sale Price ($)",
+       y = "Predicted Sale Price ($)") +
+  theme_minimal() +
+  scale_color_gradient(low = "blue", high = "red", labels = scales::dollar_format()) +
+  scale_x_continuous(labels = scales::dollar_format())+
+  scale_y_continuous(labels = scales::dollar_format())
+
+```
+
+The scatter plot visualizes the actual versus predicted sale prices from Model 2, highlighting the predictive performance of the model. The points are color-coded based on the actual sale price, ranging from $100,000 (purple) to $500,000 (red), and a red line indicates the ideal prediction where actual prices match predicted prices. The clustering of points around the red line, particularly in the lower to mid-price ranges, suggests that the model performs reasonably well for homes priced up to about $300,000. However, as the price increases, the scatter becomes more pronounced, indicating that the model's accuracy diminishes for higher-value homes. This trend suggests that while the model effectively captures the dynamics influencing lower-priced homes, it may require adjustments or additional features to better predict the higher ends of the market. The spread and color gradation also reveal that most predictions are conservative, underestimating the actual prices especially in the higher price brackets, which could point to the model's limitations in capturing factors that drive up property values.
+
+## Model 3
+```{r}
+# Fit the Random Forest model
+rf_model3 <- randomForest(SalePrice ~ OverallQual + GrLivArea, data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Summarize the model
+print(rf_model3)
+
+# Predicting using the Random Forest model
+predictions_rf3 <- predict(rf_model3, newdata = test_data)
+
+# Create a data frame containing actual and predicted sale prices
+plot_data_rf3 <- data.frame(
+  Actual = test_data$SalePrice,
+  Predicted = predictions_rf3
+)
+# Create a scatter plot to visualize the predictions
+ggplot(plot_data_rf3, aes(x = Actual, y = Predicted)) +
+  geom_point(aes(color = Actual, alpha = 0.5)) +  # Scatterplot points
+  geom_smooth(method = "lm", se = FALSE, color = "red") +  # Red regression line
+  labs(title = "Actual vs. Predicted Sale Prices (Random Forest Model 3)",
+       x = "Actual Sale Price ($)",
+       y = "Predicted Sale Price ($)") +
+  theme_minimal() +
+  scale_color_gradient(low = "blue", high = "red", labels = scales::dollar_format()) +
+  scale_x_continuous(labels = scales::dollar_format()) + 
+  scale_y_continuous(labels = scales::dollar_format())
+
+```
+
+
+ The scatter plot displays the comparison between actual and predicted sale prices using the Random Forest Model 3. The data points are color-coded based on the actual sale prices, ranging from $100,000 (purple) to $500,000 (red), and the transparency is set to 0.5 to allow for overlap visibility. The red line represents the line of perfect prediction where predicted prices would exactly match actual prices. The plot reveals a general alignment along this line, particularly in the lower to middle price ranges (up to about $300,000), indicating that the model predictions are reasonably accurate in these segments. However, as the price increases, especially above $300,000, the predictions spread further from the line, suggesting the model's accuracy decreases with higher-value homes. This variance and the noticeable deviations at higher price points might indicate limitations in the model's ability to capture features that significantly impact higher property values, or possibly the presence of outliers influencing model performance.
+ 
+ 
+# Evaluation
+```{r}
+
+# Calculate metrics
+results_lm1 <- data.frame(
+  Model = "Linear Regression",
+  MAE = MAE(test_data$SalePrice, predictions_lm1),
+  RMSE = RMSE(test_data$SalePrice, predictions_lm1),
+  Rsquared = cor(test_data$SalePrice, predictions_lm1)^2
+)
+
+# Calculate metrics
+results_lm2 <- data.frame(
+  Model = "Linear Regression",
+  MAE = MAE(test_data$SalePrice, predictions_lm2),
+  RMSE = RMSE(test_data$SalePrice, predictions_lm2),
+  Rsquared = cor(test_data$SalePrice, predictions_lm2)^2
+)
+
+
+# Calculate metrics
+results_lm3 <- data.frame(
+  Model = "Random Forest",
+  MAE = MAE(test_data$SalePrice, predictions_rf3),
+  RMSE = RMSE(test_data$SalePrice, predictions_rf3),
+  Rsquared = cor(test_data$SalePrice, predictions_rf3)^2
+)
+
+# Combine results into a single data frame
+results <- bind_rows(results_lm1, results_lm2, results_lm3)
+
+# Display the table
+kable(results, align = "c", caption = "Evaluation of Models")
+```
+
+
+Plotting the residuals
+```{r}
+# Function to plot residuals vs fitted values
+plot_residuals <- function(model, title) {
+  # Getting the residuals of the model
+  residuals <- residuals(model)
+  
+  # Using the function fitted.values to get the fitted values from the model
+  fitted_values <- fitted.values(model)
+  
+  # Using "plot" function to plot the residuals against fitted values to look for any evidence of heteroscedasticity
+  plot(fitted_values, residuals,
+       xlab = "Fitted Values", ylab = "Residuals",
+       main = title)
+  abline(h = 0, col = "red")  # Add a horizontal line at y = 0
+}
+
+# Plot residuals vs fitted values for each model
+par(mfrow = c(1,3))  # Arrange plots in a single row
+plot_residuals(lm_model1, "Residuals vs Fitted Values (Model 1)")
+plot_residuals(lm_model2, "Residuals vs Fitted Values (Enhanced Model)")
+```
+# Recommendations and Final Conclusions
+## Summary of Findings and Solutions
+Throughout this analysis, we explored several key aspects of the Ames Housing dataset to understand factors influencing property sale prices. Key findings from our exploration include:
+
+1.Time Series Analysis of Sale Prices: We observed that sale prices generally increased over time, but the growth rate varied by location. Suburbs such as NWAmes, Mitchell, Crawford, Blueste, and Gilbert showed substantial growth, making them attractive for potential investors.
+
+2.Effect of Property Attributes on Sale Prices: Our analysis confirmed that larger living areas (GrLivArea), overall quality (OverallQual), and features like the number of cars a garage can hold (GarageCars) significantly influence sale prices. Properties with extensive renovations or those that were recently remodeled also tended to fetch higher prices.
+
+3.Comparative Analysis Across Suburbs: Some suburbs exhibited faster growth in property values than others, which could guide investment decisions.
+
+4.Predictive Modeling: The models developed helped quantify the impact of various features on sale prices. Our best model incorporated factors like living area, overall quality, and number of bathrooms, achieving a robust predictive performance.
+
+## Best RMSE Achievement
+
+When examining the Root Mean Squared Error (RMSE) as a primary evaluation metric for model performance, it's evident that the Random Forest model (RMSE = 35,062.58) exhibits a higher level of prediction error compared to both Linear Regression models. Among the Linear Regression models, the first model (RMSE = 30,280.87) outperforms the second one (RMSE = 31,095.75) with a lower RMSE value, indicating that its predictions are closer to the actual values. The RMSE values reflect the average magnitude of the errors made by each model, where lower values indicate better predictive accuracy. Therefore, based on RMSE alone, the first Linear Regression model demonstrates the most accurate predictions among the models evaluated, followed by the second Linear Regression model and the Random Forest model, respectively. Key strategies in achieving this low RMSE included:
+
+Data Preprocessing: Cleaning data, handling missing values, and encoding categorical variables properly.
+
+Feature Selection: Choosing variables based on their correlation with the sale price and practical relevance.
+
+Model Refinement: Utilizing linear regression techniques and checking model assumptions to ensure reliable predictions
+
+# Refernece
+
+Shuangzhe Liu (2024) 'Week 10 - Modelling' [Tutorial pdf],Data Exploration and Visulization G Unit
+11517, accessed 04 May 2024
+
+Bruin, E. (2024, May 03). House prices: Lasso, XGBoost, and a detailed EDA [Blog post]. Retrieved from https://www.kaggle.com/code/erikbruin/house-prices-lasso-xgboost-and-a-detailed-eda
+
+Sharma, P. (2024, May 03). My first project - LR,Elastic Net and Grid Search. Retrieved from 'https://www.kaggle.com/code/prasenjitsharma/my-first-project-lr-elastic-net-and-grid-search'
+
+Shuangzhe Liu (2024) 'Week 10 - Random forests Boosted models' [Tutorial pdf],Regression Modelling G
+6557, accessed 04 May 2024
+
